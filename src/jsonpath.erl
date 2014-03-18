@@ -23,7 +23,7 @@
 %% @copyright (c) 2012 Gene Stevens.  All Rights Reserved.
 %%
 -module(jsonpath).
--export([search/2, replace/3, remove/2]).
+-export([search/2, replace/3, remove/2, add/3]).
 -export([parse_path/1]).
 
 -include("jsonpath.hrl").
@@ -39,7 +39,7 @@ replace(Path, Replace, Data) ->
 	replace_data(parse_path(Path), Replace, Data).
 
 replace_data([SearchHead|SearchTail], Replace, Structure) ->
-	case Structure of 
+	case Structure of
 		{TupleList} ->
 			%?DEBUG("tuple list: ~p", [TupleList]),
 			{ replace_tuple_list([SearchHead|SearchTail], Replace, TupleList) };
@@ -52,21 +52,21 @@ replace_data([SearchHead|SearchTail], Replace, Structure) ->
 remove(Path, Structure) ->
     replace(Path, '#remove', Structure).
 
+add(Path, Add, Structure) ->
+    replace(Path, {'#add', Add}, Structure).
+
 replace_list([SearchHead|SearchTail], Replace, List) ->
-	try 
-		Index = list_to_integer(binary_to_list(SearchHead)) + 1,
-		case (Index > length(List)) of
-			true ->
-				%?DEBUG("Index out of range ~p for list size ~p", [Index, length(List)]),
-				undefined;
-			false ->
-				replace_list([Index|SearchTail], Replace, List, 1, [])
-		end
-	catch
-		_:_ ->
-			%?DEBUG("This is not an integer: ~p", [SearchHead]),
-			undefined
-	end.
+    Index = try
+                list_to_integer(binary_to_list(SearchHead)) + 1
+            catch
+                _:_ -> erlang:error(not_an_object)
+            end,
+    case (Index > length(List)) of
+        true ->
+            erlang:error(out_of_bounds);
+        false ->
+            replace_list([Index|SearchTail], Replace, List, 1, [])
+    end.
 replace_list([_SearchHead|_SearchTail], _Replace, [], _Count, Accum) ->
 	%?DEBUG("at the end of this list with accum: ~p", [Accum]),
 	lists:reverse(Accum);
@@ -79,6 +79,8 @@ replace_list([SearchHead|SearchTail], Replace, [Head|Tail], Count, Accum) ->
 				[] ->
                                         case Replace of
                                             '#remove' -> Accum;
+                                            {'#add', _} ->
+                                                erlang:error(jsonpath_add_in_list);
                                             _ -> [Replace|Accum]
                                         end;
 				_SearchTail ->
@@ -95,6 +97,8 @@ replace_list([SearchHead|SearchTail], Replace, [Head|Tail], Count, Accum) ->
 
 replace_tuple_list([SearchHead|SearchTail], Replace, TupleList) ->
 	replace_tuple_list([SearchHead|SearchTail], Replace, TupleList, []).
+replace_tuple_list([SearchHead], {'#add', Add}, [], Accum) ->
+    lists:reverse([{SearchHead,Add}|Accum]);
 replace_tuple_list([_SearchHead|_SearchTail], _Replace, [], Accum) ->
 	%?DEBUG("at the end of this tuple list with accum: ~p", [Accum]),
 	lists:reverse(Accum);
@@ -107,6 +111,8 @@ replace_tuple_list([SearchHead|SearchTail], Replace, [Head|Tail], Accum) ->
 				[] ->
                                         case Replace of
                                             '#remove' -> Accum;
+                                            {'#add', _} ->
+                                                erlang:error(jsonpath_already_in_object);
                                             _ -> [{SearchHead, Replace}|Accum]
                                         end;
 				_SearchTail ->
