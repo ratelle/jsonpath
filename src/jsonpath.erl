@@ -23,7 +23,7 @@
 %% @copyright (c) 2012 Gene Stevens.  All Rights Reserved.
 %%
 -module(jsonpath).
--export([search/2, replace/3]).
+-export([search/2, replace/3, remove/2]).
 -export([parse_path/1]).
 
 -include("jsonpath.hrl").
@@ -48,6 +48,10 @@ replace_data([SearchHead|SearchTail], Replace, Structure) ->
 			replace_list([SearchHead|SearchTail], Replace, List)
 	end.
 
+% Remove hack
+remove(Path, Structure) ->
+    replace(Path, '#remove', Structure).
+
 replace_list([SearchHead|SearchTail], Replace, List) ->
 	try 
 		Index = list_to_integer(binary_to_list(SearchHead)) + 1,
@@ -68,21 +72,25 @@ replace_list([_SearchHead|_SearchTail], _Replace, [], _Count, Accum) ->
 	lists:reverse(Accum);
 replace_list([SearchHead|SearchTail], Replace, [Head|Tail], Count, Accum) ->
 	%?DEBUG("list: ~p", [Head|Tail]),
-	Data = case SearchHead of 
+	NewAccum = case SearchHead of 
 		Count ->
 			%?DEBUG("Found index ~p", [Count]),
 			case SearchTail of
 				[] ->
-					Replace;
+                                        case Replace of
+                                            '#remove' -> Accum;
+                                            _ -> [Replace|Accum]
+                                        end;
 				_SearchTail ->
 					%?DEBUG("Not last, so no replacement, but replaceing into: ~p", [Head]),
-					replace_data(SearchTail, Replace, Head)
+					[replace_data(SearchTail, Replace, Head)|Accum]
 			end;
 		_SearchHead ->
 			%?DEBUG("Not index ~p", [Count]),
-			Head
+			[Head|Accum]
 	end,
-	replace_list([SearchHead|SearchTail], Replace, Tail, Count+1, [Data|Accum]).
+	replace_list([SearchHead|SearchTail], Replace, Tail, Count+1, NewAccum).
+
 
 
 replace_tuple_list([SearchHead|SearchTail], Replace, TupleList) ->
@@ -92,22 +100,25 @@ replace_tuple_list([_SearchHead|_SearchTail], _Replace, [], Accum) ->
 	lists:reverse(Accum);
 replace_tuple_list([SearchHead|SearchTail], Replace, [Head|Tail], Accum) ->
 	%?DEBUG("tuple: ~p", [Head]),
-	Data = case Head of
+	NewAccum = case Head of
 		{SearchHead, Value} ->
 			%?DEBUG("Found match for ~p: ~p", [SearchHead, {SearchHead, Value}]),
-			case SearchTail of 
+			case SearchTail of
 				[] ->
-					{SearchHead, Replace};
+                                        case Replace of
+                                            '#remove' -> Accum;
+                                            _ -> [{SearchHead, Replace}|Accum]
+                                        end;
 				_SearchTail ->
 					%?DEBUG("Not last, so no replacement, but replaceing into : ~p",[Head]),
-					{SearchHead, replace_data(SearchTail, Replace, Value) }
+					[{SearchHead, replace_data(SearchTail, Replace, Value) }|Accum]
 			end;
 		_Other ->
 			%?DEBUG("No match for ~p: ~p", [SearchHead, Other]),
-			Head
+			[Head|Accum]
 	end,
 	%?DEBUG("continue processing tail: ~p", [Tail]),
-	replace_tuple_list([SearchHead|SearchTail], Replace, Tail, [Data|Accum]).
+	replace_tuple_list([SearchHead|SearchTail], Replace, Tail, NewAccum).
 
 search_data([], Data) ->
 	Data;
